@@ -57,12 +57,17 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 -spec init({string(), string()}) -> {ok, #s{}}.
 %% @hidden
 init({Uri, Ns}) ->
-    process_flag(trap_exit, true),
     random:seed(now()),
     {Host, Port} = split_uri(Uri, 8126),
-    error_logger:info_msg("stetson will use statsd at ~s:~B", [Host, Port]),
-    {ok, Sock} = gen_udp:open(0, [binary]),
-    {ok, #s{sock = Sock, host = Host, port = Port, ns = Ns}}.
+    %% We save lots of calls into inet_gethost_native by looking this up once:
+    case convert_to_ip_tuple(Host) of
+        undefined -> 
+            {stop, cant_resolve_statsd_host};
+        IP -> 
+            error_logger:info_msg("stetson using statsd at ~s:~B (resolved to: ~w)", [Host, Port, IP]),
+            {ok, Sock} = gen_udp:open(0, [binary]),
+            {ok, #s{sock = Sock, host = IP, port = Port, ns = Ns}}
+    end.
 
 -spec handle_call(message(), _, #s{}) -> {reply, ok, #s{}}.
 %% @hidden
@@ -132,3 +137,33 @@ split_uri(Uri, Default) ->
         [H|P] when length(P) > 0 -> {H, list_to_integer(lists:flatten(P))};
         [H|_]                    -> {H, Default}
     end.
+
+%% They provided an erlang tuple already:
+convert_to_ip_tuple({_,_,_,_} = IPv4)          -> IPv4;
+convert_to_ip_tuple({_,_,_,_,_,_,_,_} = IPv6)  -> IPv6;
+%% Maybe they provided an IP as a string, otherwise do a DNS lookup
+convert_to_ip_tuple(Hostname)                  ->
+    case inet_parse:address(Hostname) of
+        {ok, IP}   -> IP;
+        {error, _} -> dns_lookup(Hostname)
+    end.
+
+%% We need an option to bind the UDP socket to a v6 addr before it's worth
+%% trying to lookup AAAA records for the statsd host. Just v4 for now:
+dns_lookup(Hostname) -> resolve_hostname_by_family(Hostname, inet).
+
+%%dns_lookup(Hostname) ->
+%%    case resolve_hostname_by_family(Hostname, inet6) of
+%%        undefined -> resolve_hostname_by_family(Hostname, inet);
+%%        IP        -> IP
+%%    end.
+
+resolve_hostname_by_family(Hostname, Family) ->
+    case inet:getaddrs(Hostname, Family) of
+        {ok, L}   -> random_element(L);
+        {error,_} -> undefined
+    end.
+
+random_element(L) when is_list(L) -> 
+    lists:nth(random:uniform(length(L)), L).
+
