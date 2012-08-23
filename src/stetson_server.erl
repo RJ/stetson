@@ -80,6 +80,9 @@ handle_cast({Type, Bucket, N}, State) ->
     {noreply, State};
 handle_cast({Type, Bucket, N, Rate}, State) ->
     ok = stat(State, Type, Bucket, N, Rate),
+    {noreply, State};
+handle_cast(Msg, State) ->
+    error_logger:warning_msg("Unhandled cast to stetson_server: ~p",[Msg]),
     {noreply, State}.
 
 -spec handle_info(_Info, #s{}) -> {noreply, #s{}}.
