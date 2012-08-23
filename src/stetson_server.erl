@@ -126,12 +126,8 @@ stat(State, timer, Bucket, N) ->
 %% @private Send the formatted binary packet over the udp socket,
 %% prepending the ns/namespace
 send(#s{sock = Sock, host = Host, port = Port, ns = Ns}, Format, Args) ->
-    %% iolist_to_bin even though gen_...:send variants accept deep iolists,
-    %% since it makes logging and testing easier
-    Msg = iolist_to_binary(io_lib:format("~s." ++ Format, [Ns|Args])),
-    case gen_udp:send(Sock, Host, Port, Msg) of
-        _Any -> ok
-    end.
+    Msg = io_lib:format("~s." ++ Format, [Ns|Args]),
+    gen_udp:send(Sock, Host, Port, Msg).
 
 -spec split_uri(string(), inet:port_number()) -> {nonempty_string(), inet:port_number()}.
 %% @private
